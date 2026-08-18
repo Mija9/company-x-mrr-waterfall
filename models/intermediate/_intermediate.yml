@@ -1,0 +1,53 @@
+version: 2
+
+models:
+  - name: int_month_spine
+    description: One row per calendar month between the reporting window bounds.
+    columns:
+      - name: month_date
+        data_tests:
+          - unique
+          - not_null
+
+  - name: int_subscription_monthly
+    description: >
+      Subscriptions exploded to one row per (subscription, active month).
+      Trial subscriptions are included but contribute 0 to mrr_amount.
+
+  - name: int_account_monthly_mrr
+    description: >
+      One row per (account, month) for every account and every month in the
+      window - including months with zero active subscriptions - so
+      month-over-month deltas never have gaps.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - account_id
+            - month_date
+    columns:
+      - name: account_id
+        data_tests:
+          - not_null
+      - name: month_date
+        data_tests:
+          - not_null
+      - name: mrr
+        data_tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+
+  - name: int_account_mrr_changes
+    description: >
+      One row per (account, month) classifying the month-over-month MRR
+      movement into new / expansion / contraction / churn / reactivation /
+      retained / no_activity. This is the single source of truth for
+      waterfall movement logic - both fct_mrr_waterfall and
+      fct_mrr_waterfall_monthly are thin aggregations on top of it.
+    columns:
+      - name: movement_type
+        data_tests:
+          - accepted_values:
+              values: ['new', 'expansion', 'contraction', 'churn', 'reactivation', 'retained', 'no_activity']
+      - name: account_id
+        data_tests:
+          - not_null

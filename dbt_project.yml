@@ -1,0 +1,35 @@
+name: 'company_x'
+version: '1.0.0'
+config-version: 2
+
+profile: 'company_x'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+vars:
+  # Reporting window bounds. In production these would resolve dynamically
+  # (e.g. min/max of loaded data, or {{ run_started_at }} for the end bound).
+  # Hardcoded here since this is a static, point-in-time synthetic extract.
+  waterfall_start_month: '2023-01-01'
+  waterfall_end_month: '2024-12-01'
+
+models:
+  company_x:
+    staging:
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: view
+      +schema: intermediate
+    marts:
+      +materialized: table
+      +schema: marts

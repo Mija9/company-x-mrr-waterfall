@@ -1,0 +1,67 @@
+version: 2
+
+models:
+  - name: dim_accounts
+    description: One row per account with signup attributes, current plan, and churn/support rollups.
+    columns:
+      - name: account_id
+        description: Primary key.
+        data_tests:
+          - unique
+          - not_null
+
+  - name: fct_mrr_waterfall
+    description: >
+      Grain: one row per account per month. The drillable detail behind
+      fct_mrr_waterfall_monthly - lets analysts slice waterfall movements by
+      industry, country, plan tier, referral source, or churn reason.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - account_id
+            - month_date
+    columns:
+      - name: account_id
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_accounts')
+              field: account_id
+      - name: movement_type
+        data_tests:
+          - accepted_values:
+              values: ['new', 'expansion', 'contraction', 'churn', 'reactivation', 'retained', 'no_activity']
+
+  - name: fct_mrr_waterfall_monthly
+    description: >
+      Grain: one row per month. The CFO-facing MRR waterfall: beginning_mrr,
+      each movement bucket (new/expansion/contraction/churned/reactivation),
+      and ending_mrr. beginning_mrr + net_new_mrr = ending_mrr, and
+      ending_mrr in month M equals beginning_mrr in month M+1 - both are
+      enforced by custom tests (see tests/).
+    columns:
+      - name: month_date
+        description: First day of the month.
+        data_tests:
+          - unique
+          - not_null
+      - name: beginning_mrr
+        data_tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+      - name: ending_mrr
+        data_tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+
+  - name: fct_support_tickets
+    description: >
+      Grain: one row per support ticket, enriched with account context.
+      Not consumed by the waterfall; included so the full source dataset
+      is represented through to the reporting layer.
+
+  - name: fct_feature_usage_monthly
+    description: >
+      Grain: one row per account per month of product usage. Not consumed
+      by the waterfall; a natural input to a future engagement/health-score
+      model.

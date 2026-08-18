@@ -1,0 +1,65 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Raw tables landed by the (simulated) EL step from Company X's product
+      and billing systems. One-to-one with the source CSV extracts.
+    schema: raw
+    tables:
+      - name: raw_accounts
+        description: One row per customer account.
+        loaded_at_field: signup_date
+        columns:
+          - name: account_id
+            data_tests:
+              - unique
+              - not_null
+
+      - name: raw_subscriptions
+        description: >
+          One row per subscription "episode". An account can hold multiple
+          subscription rows over time (renewals, upgrades, downgrades each
+          create a new row) and, per the data, can even hold multiple
+          concurrently-active subscriptions (e.g. multi-team / multi-product
+          contracts).
+        columns:
+          - name: subscription_id
+            data_tests:
+              - unique
+              - not_null
+          - name: account_id
+            data_tests:
+              - not_null
+
+      - name: raw_feature_usage
+        description: >
+          One row per feature-usage event, keyed to a subscription.
+          Known data-quality issue: usage_id has ~21 hash collisions
+          (source-system ID generation issue, not true duplicate events -
+          confirmed by differing subscription_id/date/feature on each
+          "duplicate" pair). Downgraded to a warn-severity test here; a
+          collision-proof surrogate key is generated in stg_feature_usage.
+        columns:
+          - name: usage_id
+            data_tests:
+              - not_null
+              - unique:
+                  config:
+                    severity: warn
+
+      - name: raw_support_tickets
+        description: One row per support ticket, keyed to an account.
+        columns:
+          - name: ticket_id
+            data_tests:
+              - unique
+              - not_null
+
+      - name: raw_churn_events
+        description: One row per churn instance, keyed to an account.
+        columns:
+          - name: churn_event_id
+            data_tests:
+              - unique
+              - not_null

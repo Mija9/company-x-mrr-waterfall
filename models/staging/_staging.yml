@@ -1,0 +1,94 @@
+version: 2
+
+models:
+  - name: stg_accounts
+    description: One row per account, lightly cleaned/renamed from the raw extract.
+    columns:
+      - name: account_id
+        description: Primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: signup_plan_tier
+        data_tests:
+          - accepted_values:
+              values: ['Basic', 'Pro', 'Enterprise']
+
+  - name: stg_subscriptions
+    description: >
+      One row per subscription episode. `revenue_mrr_amount` zeroes out
+      trial subscriptions so downstream revenue sums never include
+      non-paying trial MRR.
+    columns:
+      - name: subscription_id
+        description: Primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('stg_accounts')
+              field: account_id
+      - name: mrr_amount
+        data_tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+      - name: billing_frequency
+        data_tests:
+          - accepted_values:
+              values: ['monthly', 'annual']
+
+  - name: stg_feature_usage
+    description: >
+      One row per feature-usage event. Source usage_id has ~21 hash
+      collisions (see _sources.yml note) so a hash-based surrogate key
+      (usage_pk) is generated here and used as the real primary key.
+    columns:
+      - name: usage_pk
+        description: Surrogate key, collision-proof unlike the source usage_id.
+        data_tests:
+          - unique
+          - not_null
+      - name: usage_id
+        data_tests:
+          - not_null
+      - name: subscription_id
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('stg_subscriptions')
+              field: subscription_id
+
+  - name: stg_support_tickets
+    description: One row per support ticket.
+    columns:
+      - name: ticket_id
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('stg_accounts')
+              field: account_id
+      - name: priority
+        data_tests:
+          - accepted_values:
+              values: ['low', 'medium', 'high', 'urgent']
+
+  - name: stg_churn_events
+    description: One row per churn instance.
+    columns:
+      - name: churn_event_id
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('stg_accounts')
+              field: account_id

@@ -1,0 +1,7 @@
+company_x:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('DBT_DUCKDB_PATH', 'company_x.duckdb') }}"
+      threads: 4
