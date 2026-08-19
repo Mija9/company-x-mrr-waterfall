@@ -1,0 +1,222 @@
+version: 2
+
+models:
+
+  # ============================================================
+  # STAGING
+  # ============================================================
+
+  - name: stg_accounts
+    description: >
+      Staging model for account data. Performs source-level renaming,
+      casting, and light cleanup while preserving the source grain.
+    columns:
+      - name: account_id
+        description: Unique identifier for the account.
+        tests:
+          - not_null
+          - unique
+
+  - name: stg_subscriptions
+    description: >
+      Staging model for subscription records. Preserves subscription
+      grain while standardizing dates, amounts, and subscription flags.
+    columns:
+      - name: subscription_id
+        description: Unique identifier for a subscription.
+        tests:
+          - not_null
+          - unique
+      - name: account_id
+        description: Account associated with the subscription.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_accounts')
+              field: account_id
+      - name: is_trial
+        description: Whether the subscription is a trial subscription.
+      - name: revenue_mrr_amount
+        description: >
+          Monthly recurring revenue contribution used by downstream
+          revenue models. Trial subscriptions contribute zero MRR.
+
+  - name: stg_feature_usage
+    description: >
+      Staging model for feature usage events. Cleans and standardizes
+      source usage data and creates a surrogate usage key where needed.
+    columns:
+      - name: usage_pk
+        description: >
+          Surrogate key for a feature usage event. Used because the
+          source usage_id contains known hash collisions.
+        tests:
+          - not_null
+          - unique
+      - name: account_id
+        description: Account associated with the usage event.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_accounts')
+              field: account_id
+
+  - name: stg_support_tickets
+    description: >
+      Staging model for support ticket data. Applies source-level
+      cleaning and type standardization.
+
+  - name: stg_churn_events
+    description: >
+      Staging model for churn event data. Churn events are retained
+      for enrichment and drill-down rather than being used as the
+      primary source for MRR movement classification.
+
+  # ============================================================
+  # INTERMEDIATE
+  # ============================================================
+
+  - name: int_month_spine
+    description: >
+      Calendar spine covering the configured MRR reporting window.
+      Provides one row per reporting month.
+
+  - name: int_subscription_monthly
+    description: >
+      Explodes subscriptions into subscription-month records.
+      Represents whether each subscription is active in each reporting
+      month and calculates its MRR contribution.
+
+  - name: int_account_monthly_mrr
+    description: >
+      Aggregates subscription-month data to account-month grain.
+      Account MRR is the sum of all active, non-trial subscriptions.
+      Months with no MRR are zero-filled.
+
+  - name: int_account_mrr_changes
+    description: >
+      Core MRR waterfall classification model. Compares current-month
+      MRR with prior-month MRR for every account and assigns a movement
+      type.
+    columns:
+      - name: account_id
+        description: Account identifier.
+        tests:
+          - not_null
+      - name: month_date
+        description: Reporting month.
+        tests:
+          - not_null
+      - name: movement_type
+        description: >
+          MRR movement classification. Possible values are new,
+          reactivation, expansion, contraction, churn, retained,
+          and no_activity.
+        tests:
+          - accepted_values:
+              values:
+                - new
+                - reactivation
+                - expansion
+                - contraction
+                - churn
+                - retained
+                - no_activity
+      - name: prior_mrr
+        description: Account MRR in the previous reporting month.
+      - name: current_mrr
+        description: Account MRR in the current reporting month.
+      - name: mrr_delta
+        description: Difference between current and prior month MRR.
+
+  # ============================================================
+  # MARTS
+  # ============================================================
+
+  - name: dim_accounts
+    description: >
+      Business-ready account dimension containing one row per account.
+    columns:
+      - name: account_id
+        description: Unique identifier for the account.
+        tests:
+          - not_null
+          - unique
+
+  - name: fct_mrr_waterfall
+    description: >
+      Drillable account-month MRR waterfall fact. Grain is one row per
+      account and reporting month. Contains MRR movement classification
+      and supporting churn enrichment.
+    columns:
+      - name: account_id
+        description: Account identifier.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_accounts')
+              field: account_id
+      - name: month_date
+        description: Reporting month.
+        tests:
+          - not_null
+      - name: movement_type
+        description: Classification of the account's MRR movement for the month.
+        tests:
+          - accepted_values:
+              values:
+                - new
+                - reactivation
+                - expansion
+                - contraction
+                - churn
+                - retained
+                - no_activity
+      - name: beginning_mrr
+        description: MRR at the beginning of the month.
+      - name: ending_mrr
+        description: MRR at the end of the month.
+      - name: mrr_delta
+        description: Change in MRR during the month.
+
+  - name: fct_mrr_waterfall_monthly
+    description: >
+      CFO-ready monthly MRR waterfall. Grain is one row per reporting
+      month. Reconciles beginning MRR to ending MRR through new,
+      expansion, contraction, churn, and reactivation movements.
+    columns:
+      - name: month_date
+        description: Reporting month.
+        tests:
+          - not_null
+          - unique
+      - name: beginning_mrr
+        description: MRR at the beginning of the month.
+      - name: new_mrr
+        description: MRR from newly acquired customers.
+      - name: expansion_mrr
+        description: >
+          Positive MRR growth from existing customers, including
+          additional concurrent subscriptions.
+      - name: contraction_mrr
+        description: >
+          Negative MRR movement where an existing customer reduces
+          MRR but remains above zero.
+      - name: churned_mrr
+        description: >
+          Negative MRR movement where an account's MRR falls to zero.
+      - name: reactivation_mrr
+        description: >
+          MRR from previously churned accounts returning to paid MRR.
+      - name: ending_mrr
+        description: Ending MRR for the reporting month.
+
+  - name: fct_support_tickets
+    description: >
+      Business-ready support ticket fact containing detailed ticket
+      records for customer-support analysis.
+
+  - name: fct_feature_usage_monthly
+    description: >
+      Monthly account-level feature usage rollup. Provides usage
+      completeness for downstream customer-health and churn analysis.
